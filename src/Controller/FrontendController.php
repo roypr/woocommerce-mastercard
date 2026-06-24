@@ -8,7 +8,7 @@ use Fingent\Mastercard\Controller\UtilityController;
 use Fingent\Mastercard\Controller\PaymentController;
 use Fingent\Mastercard\Helper\CheckoutBuilder;
 
-if ( ! defined( 'ABSPATH' ) ) {
+if (! defined('ABSPATH')) {
 	exit; // Exit if accessed directly.
 }
 
@@ -19,7 +19,7 @@ class FrontendController {
 	 * @var FrontendController|null
 	 */
 	private static ?FrontendController $instance = null;
-	
+
 	/**
 	 * UtilityController.
 	 *
@@ -39,8 +39,8 @@ class FrontendController {
 	 *
 	 * @return FrontendController instance.
 	 */
-	public static function get_instance():FrontendController {
-		if ( null === self::$instance ) {
+	public static function get_instance(): FrontendController {
+		if (null === self::$instance) {
 			self::$instance = new self();
 		}
 
@@ -56,33 +56,38 @@ class FrontendController {
 		$this->gateway = MastercardGateway::get_instance();
 		$this->utility = UtilityController::get_instance();
 
-		add_action( 'init', array( $this, 'load_textdomain' ) );
-		add_action( 'wp_footer', array( $this, 'refresh_handling_fees_on_checkout' ) );
-		add_filter( 'script_loader_tag', array( $this, 'add_js_extra_attribute' ), 10 );
-		add_action( 'wp_enqueue_scripts', array( $this, 'payment_gateway_scripts' ), 10 );
-		add_action( 'template_redirect', array( $this, 'define_default_payment_gateway' ) );
-		add_action( 'wp_enqueue_scripts', array( $this, 'clear_session_storage' ), 20 );
-		add_action( 'woocommerce_cart_calculate_fees', array( $this, 'add_handling_fee' ), 10, 1 );	
-		add_filter( 'woocommerce_saved_payment_methods_list', array( $this, 'remove_saved_mastercard_methods' ), 10, 2 );
-		add_filter( 'woocommerce_payment_gateway_get_saved_payment_method_option_html', array( $this, 'mastercard_saved_payment_method_option_html' ), 10, 3 );
-		add_filter( 'woocommerce_payment_gateway_save_new_payment_method_option_html', array( $this, 'mastercard_saved_new_payment_method_option_html' ), 10, 3 );
-		add_filter( 'woocommerce_payment_gateway_get_new_payment_method_option_html', array( $this, 'mg_get_new_payment_method_option_html' ), 10, 2 );
-		add_filter( 'woocommerce_payment_token_class', array( $this, 'override_mg_token_class' ), 10, 2 );
-		add_filter( 'woocommerce_credit_card_type_labels', array( $this, 'mg_get_credit_card_type_label' ), 10, 2 );
+		add_action('init', array($this, 'load_textdomain'));
+		add_action('wp_footer', array($this, 'refresh_handling_fees_on_checkout'));
+		add_filter('script_loader_tag', array($this, 'add_js_extra_attribute'), 10);
+		add_action('wp_enqueue_scripts', array($this, 'payment_gateway_scripts'), 10);
+		add_action('template_redirect', array($this, 'define_default_payment_gateway'));
+		add_action('wp_enqueue_scripts', array($this, 'clear_session_storage'), 20);
+		add_action('woocommerce_cart_calculate_fees', array($this, 'add_handling_fee'), 10, 1);
+		add_filter('woocommerce_saved_payment_methods_list', array($this, 'remove_saved_mastercard_methods'), 10, 2);
+		add_filter('woocommerce_payment_gateway_get_saved_payment_method_option_html', array($this, 'mastercard_saved_payment_method_option_html'), 10, 3);
+		add_filter('woocommerce_payment_gateway_save_new_payment_method_option_html', array($this, 'mastercard_saved_new_payment_method_option_html'), 10, 3);
+		add_filter('woocommerce_payment_gateway_get_new_payment_method_option_html', array($this, 'mg_get_new_payment_method_option_html'), 10, 2);
+		add_filter('woocommerce_payment_token_class', array($this, 'override_mg_token_class'), 10, 2);
+		add_filter('woocommerce_credit_card_type_labels', array($this, 'mg_get_credit_card_type_label'), 10, 2);
 
 		$ajax = array(
 			'get_surcharge_amount'           => 'get_surcharge_amount',
 			'update_selected_payment_method' => 'update_selected_payment_method'
 		);
 
-		foreach( $ajax as $handler => $function_name ) {
-			add_action( 'wp_ajax_' . $handler, array( $this, $function_name . '_handler' ) );
-			add_action( 'wp_ajax_nopriv_' . $handler, array( $this, $function_name . '_handler' ) );
+		foreach ($ajax as $handler => $function_name) {
+			add_action('wp_ajax_' . $handler, array($this, $function_name . '_handler'));
+			add_action('wp_ajax_nopriv_' . $handler, array($this, $function_name . '_handler'));
 		}
 
-		if( ! is_admin() ) {
-			set_exception_handler( array( $this, 'exception_handler' ) );
+		if (! is_admin()) {
+			set_exception_handler(array($this, 'exception_handler'));
 		}
+
+		add_filter('woocommerce_gateway_icon', array($this, 'gateway_icon'), 10, 2);
+		add_action('before_woocommerce_pay', array($this, 'before_woocommerce_pay'), 9);
+		add_action('woocommerce_receipt_mastercard_gateway', array($this, 'receipt_mastercard_gateway_footer'), 11);
+		add_action('wp_head', array($this, 'payment_page_styles'));
 	}
 
 	/**
@@ -95,59 +100,58 @@ class FrontendController {
 		load_plugin_textdomain(
 			MG_ENTERPRISE_TEXTDOMAIN,
 			false,
-			trailingslashit( dirname( plugin_basename( MG_ENTERPRISE_MAIN_FILE ) ) ) . 'i18n/'
+			trailingslashit(dirname(plugin_basename(MG_ENTERPRISE_MAIN_FILE))) . 'i18n/'
 		);
 	}
 
 	/**
-	 * This function is responsible for including the necessary payment gateway scripts.
-	 *
-	 * @return void
 	 */
 	public function payment_gateway_scripts() {
-		$order_id = get_query_var( 'order-pay' );
-		$order    = new WC_Order( $order_id ); 
+		$order_id = get_query_var('order-pay');
+		$order    = new WC_Order($order_id);
 
-		if ( $order->get_payment_method() !== $this->gateway->id ) {
+		if ($order->get_payment_method() !== $this->gateway->id) {
 			return;
 		}
 
-		if ( HOSTED_CHECKOUT === $this->gateway->method ) {
+		if (HOSTED_CHECKOUT === $this->gateway->method) {
 			wp_enqueue_script(
 				'woocommerce_mastercard_hosted_checkout',
-				esc_attr( $this->utility->get_hosted_checkout_js() ),
+				esc_attr($this->utility->get_hosted_checkout_js()),
 				array(),
 				MG_ENTERPRISE_MODULE_VERSION,
 				false
 			);
 		}
 
-		if ( HOSTED_SESSION === $this->gateway->method ) { 
+		if (HOSTED_SESSION === $this->gateway->method) {
 			wp_enqueue_script(
 				'woocommerce_mastercard_hosted_session',
-				esc_url( $this->utility->get_hosted_session_js() ),
+				esc_url($this->utility->get_hosted_session_js()),
 				array(),
 				MG_ENTERPRISE_MODULE_VERSION,
 				false
 			);
 
-			if ( $this->gateway->use_3dsecure_v1() || $this->gateway->use_3dsecure_v2() ) {
+			if ($this->gateway->use_3dsecure_v1() || $this->gateway->use_3dsecure_v2()) {
 				wp_enqueue_script(
 					'woocommerce_mastercard_threeds',
-					esc_url( $this->utility->get_threeds_js() ),
+					esc_url($this->utility->get_threeds_js()),
 					array(),
 					MG_ENTERPRISE_MODULE_VERSION,
 					false
 				);
 			}
 
-			wp_localize_script( 'woocommerce_mastercard_hosted_session', 'mgParams',
-				array( 
+			wp_localize_script(
+				'woocommerce_mastercard_hosted_session',
+				'mgParams',
+				array(
 					'gatewayId'          => MG_ENTERPRISE_ID,
-					'ajaxUrl'            => admin_url( 'admin-ajax.php' ),
-					'isSurchargeEnabled' => $this->gateway->get_option( SUR_ENABLED ) === 'yes' ? true : false,
-					'surchargeFee'       => (float) $this->gateway->get_option( SUR_AMT_TXT ),
-					'cardType'           => strtoupper( $this->gateway->get_option( SUR_CARD_TYPE ) ),
+					'ajaxUrl'            => admin_url('admin-ajax.php'),
+					'isSurchargeEnabled' => $this->gateway->get_option(SUR_ENABLED) === 'yes' ? true : false,
+					'surchargeFee'       => (float) $this->gateway->get_option(SUR_AMT_TXT),
+					'cardType'           => strtoupper($this->gateway->get_option(SUR_CARD_TYPE)),
 				)
 			);
 		}
@@ -160,15 +164,15 @@ class FrontendController {
 	 *
 	 * @return string $tag Script link.
 	 */
-	public function add_js_extra_attribute( $tag ) {
-		$scripts = array( $this->utility->get_hosted_checkout_js() );
-		if ( $scripts ) {
-			foreach ( $scripts as $script ) {
-				if ( false !== strpos( $tag, $script ) ) {
-					return str_replace( 
-						' src', 
-						' async data-error="errorCallback" data-beforeRedirect="befroreRedirctCallback" data-afterRedirect="afterRedirectCallback" data-complete="completeCallback" src', 
-						$tag 
+	public function add_js_extra_attribute($tag) {
+		$scripts = array($this->utility->get_hosted_checkout_js());
+		if ($scripts) {
+			foreach ($scripts as $script) {
+				if (false !== strpos($tag, $script)) {
+					return str_replace(
+						' src',
+						' async data-error="errorCallback" data-beforeRedirect="befroreRedirctCallback" data-afterRedirect="afterRedirectCallback" data-complete="completeCallback" src',
+						$tag
 					);
 				}
 			}
@@ -176,7 +180,7 @@ class FrontendController {
 		return $tag;
 	}
 
-		/**
+	/**
 	 * Refreshes the handling fees on the checkout page dynamically.
 	 * 
 	 * This function is typically hooked into WooCommerce's AJAX or checkout update events.
@@ -184,36 +188,40 @@ class FrontendController {
 	 * preventing outdated fee calculations due to changes in cart contents or other conditions.
 	 */
 	public function refresh_handling_fees_on_checkout() {
-		if ( is_checkout() && ! is_wc_endpoint_url( 'order-received' ) ) {
+		if (is_checkout() && ! is_wc_endpoint_url('order-received')) {
 			static $executed = false;
 
-			if ( $executed ) {
+			if ($executed) {
 				return;
 			}
 
-        	$executed      = true;
-        	$amount_type   = $this->gateway->get_option( HF_AMT_TYPE_TXT );
-        	$handling_fee  = $this->gateway->get_option( HF_AMT_TXT ) ? $this->gateway->get_option( HF_AMT_TXT ) : 0;
+			$executed      = true;
+			$amount_type   = $this->gateway->get_option(HF_AMT_TYPE_TXT);
+			$handling_fee  = $this->gateway->get_option(HF_AMT_TXT) ? $this->gateway->get_option(HF_AMT_TXT) : 0;
 
-			if ( HF_PERCENTAGE === $amount_type ) {
-				$surcharge = (float)( WC()->cart->cart_contents_total ) * ( (float) $handling_fee / 100 );
+			if (HF_PERCENTAGE === $amount_type) {
+				$surcharge = (float)(WC()->cart->cart_contents_total) * ((float) $handling_fee / 100);
 			} else {
 				$surcharge = $handling_fee;
 			}
-	        ?>
-	        <script type="text/javascript">
-				const handlingText = '<?php echo sanitize_title( !empty( $this->gateway->get_option( HF_TEXT ) ) ? $this->gateway->get_option( HF_TEXT ) : HF_DEFAULT_TEXT ); ?>';
-				const handlingFeeWrapper = '<div class="wc-block-components-totals-item wc-block-components-totals-fees wc-block-components-totals-fees__<?php echo sanitize_title( !empty( $this->gateway->get_option( HF_TEXT ) ) ? $this->gateway->get_option( HF_TEXT ) : HF_DEFAULT_TEXT ); ?>"><span class="wc-block-components-totals-item__label"><?php echo !empty( $this->gateway->get_option( HF_TEXT ) ) ? $this->gateway->get_option( HF_TEXT ) : HF_DEFAULT_TEXT; ?></span><span class="wc-block-formatted-money-amount wc-block-components-formatted-money-amount wc-block-components-totals-item__value"><?php echo wc_price( $surcharge ); ?></span><div class="wc-block-components-totals-item__description"></div></div>';
+?>
+			<script type="text/javascript">
+				const handlingText = '<?php echo sanitize_title(!empty($this->gateway->get_option(HF_TEXT)) ? $this->gateway->get_option(HF_TEXT) : HF_DEFAULT_TEXT); ?>';
+				const handlingFeeWrapper = '<div class="wc-block-components-totals-item wc-block-components-totals-fees wc-block-components-totals-fees__<?php echo sanitize_title(!empty($this->gateway->get_option(HF_TEXT)) ? $this->gateway->get_option(HF_TEXT) : HF_DEFAULT_TEXT); ?>"><span class="wc-block-components-totals-item__label"><?php echo !empty($this->gateway->get_option(HF_TEXT)) ? $this->gateway->get_option(HF_TEXT) : HF_DEFAULT_TEXT; ?></span><span class="wc-block-formatted-money-amount wc-block-components-formatted-money-amount wc-block-components-totals-item__value"><?php echo wc_price($surcharge); ?></span><div class="wc-block-components-totals-item__description"></div></div>';
 
 				jQuery(function($) {
 					// Detect when payment method is changed
-					$( document ).on( 'change', 'input[name="payment_method"]', function() { 
-						$( document.body ).trigger( "update_checkout" );
+					$(document).on('change', 'input[name="payment_method"]', function() {
+						$(document.body).trigger("update_checkout");
 					});
 				});
 			</script>
-			<style type="text/css">.woocommerce-checkout #payment ul.payment_methods li.payment_method_mastercard_gateway img { height: 24px; }</style>
-	        <?php
+			<style type="text/css">
+				.woocommerce-checkout #payment ul.payment_methods li.payment_method_mastercard_gateway img {
+					height: 24px;
+				}
+			</style>
+		<?php
 		}
 	}
 
@@ -224,25 +232,25 @@ class FrontendController {
 	 * the checkout page. It ensures the preferred gateway (e.g., Simplify Payments)
 	 * is pre-selected to streamline the checkout experience.
 	 */
-	public function define_default_payment_gateway() {    
-        if( is_checkout() && ! is_wc_endpoint_url() ) {
-            $payment_gateways = WC()->payment_gateways->get_available_payment_gateways(); 
-            $first_gateway    = reset( $payment_gateways );
+	public function define_default_payment_gateway() {
+		if (is_checkout() && ! is_wc_endpoint_url()) {
+			$payment_gateways = WC()->payment_gateways->get_available_payment_gateways();
+			$first_gateway    = reset($payment_gateways);
 
-            WC()->session->set( 'chosen_payment_method', $first_gateway->id );
-        } elseif( is_wc_endpoint_url() && get_query_var( 'order-pay' ) ) { 
-            $order_id       = esc_attr( get_query_var( 'order-pay' ) );
-            $order          = wc_get_order( $order_id );
-            $payment_method = WC()->session->get( 'chosen_payment_method' );
-            if( $payment_method !== MG_ENTERPRISE_ID ) {
-                $available_gateways = WC()->payment_gateways->get_available_payment_gateways();
-                $order->set_payment_method( MG_ENTERPRISE_ID );
-                $order->set_payment_method_title( $available_gateways[MG_ENTERPRISE_ID]->get_title() );
-                $order->save();
-                WC()->session->set( 'chosen_payment_method', MG_ENTERPRISE_ID );
-            }
-        }
-    }
+			WC()->session->set('chosen_payment_method', $first_gateway->id);
+		} elseif (is_wc_endpoint_url() && get_query_var('order-pay')) {
+			$order_id       = esc_attr(get_query_var('order-pay'));
+			$order          = wc_get_order($order_id);
+			$payment_method = WC()->session->get('chosen_payment_method');
+			if ($payment_method !== MG_ENTERPRISE_ID) {
+				$available_gateways = WC()->payment_gateways->get_available_payment_gateways();
+				$order->set_payment_method(MG_ENTERPRISE_ID);
+				$order->set_payment_method_title($available_gateways[MG_ENTERPRISE_ID]->get_title());
+				$order->save();
+				WC()->session->set('chosen_payment_method', MG_ENTERPRISE_ID);
+			}
+		}
+	}
 
 	/**
 	 * This function clears the session storage after orders placed by mastercard payment gateway plugin.
@@ -250,20 +258,20 @@ class FrontendController {
 	 * @return void
 	 */
 	public function clear_session_storage() {
-		if ( ! is_order_received_page() ) {
+		if (! is_order_received_page()) {
 			return;
 		}
 
-		$order_id = absint( get_query_var( 'order-received' ) );
-		$order    = wc_get_order( $order_id );
+		$order_id = absint(get_query_var('order-received'));
+		$order    = wc_get_order($order_id);
 
-		if ( ! $order || $order->get_payment_method() !== MG_ENTERPRISE_ID ) {
+		if (! $order || $order->get_payment_method() !== MG_ENTERPRISE_ID) {
 			return;
 		}
-		
+
 		wp_enqueue_script(
 			'clear-session-storage',
-			UtilityController::plugin_url() . '/assets/js/clear-session.js', 
+			UtilityController::plugin_url() . '/assets/js/clear-session.js',
 			array(),
 			MG_ENTERPRISE_MODULE_VERSION,
 			true
@@ -281,21 +289,21 @@ class FrontendController {
 	 *
 	 * @return array The filtered list of saved payment methods without Mastercard (MPGS).
 	 */
-	public function remove_saved_mastercard_methods( $saved_methods, $customer_id ) {
-		if ( empty( $saved_methods ) || ! is_array( $saved_methods ) ) {
+	public function remove_saved_mastercard_methods($saved_methods, $customer_id) {
+		if (empty($saved_methods) || ! is_array($saved_methods)) {
 			return $saved_methods;
 		}
-	
-		foreach ( $saved_methods as $key => $methods ) {
-			$saved_methods[$key] = array_filter( $methods, function ( $method ) {
-				return empty( $method['method']['gateway'] ) || $method['method']['gateway'] !== MG_ENTERPRISE_ID;
+
+		foreach ($saved_methods as $key => $methods) {
+			$saved_methods[$key] = array_filter($methods, function ($method) {
+				return empty($method['method']['gateway']) || $method['method']['gateway'] !== MG_ENTERPRISE_ID;
 			});
-	
-			if ( empty( $saved_methods[$key] ) ) {
-				unset( $saved_methods[$key] );
+
+			if (empty($saved_methods[$key])) {
+				unset($saved_methods[$key]);
 			}
 		}
-	
+
 		return $saved_methods;
 	}
 
@@ -315,14 +323,14 @@ class FrontendController {
 	 * @return void 
 	 */
 	public function update_selected_payment_method_handler() {
-	    if ( isset( $_POST['payment_method'] ) ) {
-	    	$payment_method = sanitize_text_field( $_POST['payment_method'] ); 
-	        WC()->session->set( 'chosen_payment_method', $payment_method );
-	        WC()->cart->calculate_totals();
-	        wp_send_json_success();
-	    } else {
-	        wp_send_json_error();
-	    }
+		if (isset($_POST['payment_method'])) {
+			$payment_method = sanitize_text_field($_POST['payment_method']);
+			WC()->session->set('chosen_payment_method', $payment_method);
+			WC()->cart->calculate_totals();
+			wp_send_json_success();
+		} else {
+			wp_send_json_error();
+		}
 	}
 
 	/**
@@ -334,66 +342,66 @@ class FrontendController {
 	 *
 	 * @return float The calculated surcharge amount.
 	 */
-	public function get_surcharge_amount_handler() {		
-		$order_id          = isset( $_POST['order_id'] ) ? sanitize_text_field( wp_unslash( $_POST['order_id'] ) ) : null;
-		$order             = wc_get_order( $order_id );
-		$order_builder     = new CheckoutBuilder( $order );
-		$surcharge_enabled = $this->gateway->get_option( SUR_ENABLED );
-		$card_type 		   = strtoupper( $this->gateway->get_option( SUR_CARD_TYPE ) );
-		$funding_method    = isset( $_POST['funding_method'] ) ? sanitize_text_field( wp_unslash( $_POST['funding_method'] ) ) : null;
-		$token             = isset( $_POST['token'] ) ? sanitize_text_field( wp_unslash( $_POST['token'] ) ) : null;
-		$source_type       = isset( $_POST['source_type'] ) ? sanitize_text_field( wp_unslash( $_POST['source_type'] ) ) : null;
+	public function get_surcharge_amount_handler() {
+		$order_id          = isset($_POST['order_id']) ? sanitize_text_field(wp_unslash($_POST['order_id'])) : null;
+		$order             = wc_get_order($order_id);
+		$order_builder     = new CheckoutBuilder($order);
+		$surcharge_enabled = $this->gateway->get_option(SUR_ENABLED);
+		$card_type 		   = strtoupper($this->gateway->get_option(SUR_CARD_TYPE));
+		$funding_method    = isset($_POST['funding_method']) ? sanitize_text_field(wp_unslash($_POST['funding_method'])) : null;
+		$token             = isset($_POST['token']) ? sanitize_text_field(wp_unslash($_POST['token'])) : null;
+		$source_type       = isset($_POST['source_type']) ? sanitize_text_field(wp_unslash($_POST['source_type'])) : null;
 
-		if ( ! $order_id || $card_type !== $funding_method ) {
-			if ( empty( $token ) && empty( $source_type ) ) {
+		if (! $order_id || $card_type !== $funding_method) {
+			if (empty($token) && empty($source_type)) {
 				$return = array(
 					'message' => 'Unfortunately, we couldn’t update the order total at this time.',
 					'code'    => 400
 				);
-				wp_send_json( $return );
+				wp_send_json($return);
 			}
 		}
-		
-		$order = wc_get_order( $order_id );
 
-		if( $order && 'yes' === $surcharge_enabled ) {
+		$order = wc_get_order($order_id);
 
-			$amount_type    = $this->gateway->get_option( SUR_AMT_TYPE_TXT );
-			$surcharge_fee  = $this->gateway->get_option( SUR_AMT_TXT ) ? $this->gateway->get_option( SUR_AMT_TXT ) : 0;
-			$surcharge_text = $this->gateway->get_option( SUR_TEXT );
-			$surcharge_text = !empty( $surcharge_text ) ? $surcharge_text : __( 'Surcharge', MG_ENTERPRISE_TEXTDOMAIN );
+		if ($order && 'yes' === $surcharge_enabled) {
 
-			if ( HF_PERCENTAGE === $amount_type ) {
-				$surcharge = (float) ( $order->get_total() ) * ( (float) $surcharge_fee / ( 100 - (float) $surcharge_fee) );
+			$amount_type    = $this->gateway->get_option(SUR_AMT_TYPE_TXT);
+			$surcharge_fee  = $this->gateway->get_option(SUR_AMT_TXT) ? $this->gateway->get_option(SUR_AMT_TXT) : 0;
+			$surcharge_text = $this->gateway->get_option(SUR_TEXT);
+			$surcharge_text = !empty($surcharge_text) ? $surcharge_text : __('Surcharge', MG_ENTERPRISE_TEXTDOMAIN);
+
+			if (HF_PERCENTAGE === $amount_type) {
+				$surcharge = (float) ($order->get_total()) * ((float) $surcharge_fee / (100 - (float) $surcharge_fee));
 			} else {
 				$surcharge = (float) $surcharge_fee;
 			}
 
-			$surcharge = $order_builder->formattedPrice( $surcharge );
-	        $fee       = new WC_Order_Item_Fee();
-		    $fee->set_name( $surcharge_text );
-		    $fee->set_amount( $surcharge );
-		    $fee->set_total( $surcharge );
+			$surcharge = $order_builder->formattedPrice($surcharge);
+			$fee       = new WC_Order_Item_Fee();
+			$fee->set_name($surcharge_text);
+			$fee->set_amount($surcharge);
+			$fee->set_total($surcharge);
 
-		    // Add the fee to the order
-		    $order->add_item( $fee );
+			// Add the fee to the order
+			$order->add_item($fee);
 
-		    // Save the order
-		    $order->calculate_totals( false );
-		    $order->update_meta_data( '_mpgs_surcharge_fee', $surcharge );
-		    $order->save();
+			// Save the order
+			$order->calculate_totals(false);
+			$order->update_meta_data('_mpgs_surcharge_fee', $surcharge);
+			$order->save();
 
-		    $return = array(
-			    'code'        => 200,
-			    'order_total' => wc_price( $order->get_total() )
+			$return = array(
+				'code'        => 200,
+				'order_total' => wc_price($order->get_total())
 			);
 
-			wp_send_json( $return );
+			wp_send_json($return);
 		}
 
 		wp_send_json(
 			array(
-				'message' => __( 'Surcharge is not enabled.', MG_ENTERPRISE_TEXTDOMAIN ),
+				'message' => __('Surcharge is not enabled.', MG_ENTERPRISE_TEXTDOMAIN),
 				'code'    => 400,
 			),
 			400
@@ -406,13 +414,13 @@ class FrontendController {
 	 * @param int $order_id Order ID.
 	 * @return WC_Order
 	 */
-	protected function verify_surcharge_ajax_access( $order_id ) {
-		$token = isset( $_POST['mg_order_token'] ) ? sanitize_text_field( wp_unslash( $_POST['mg_order_token'] ) ) : '';
+	protected function verify_surcharge_ajax_access($order_id) {
+		$token = isset($_POST['mg_order_token']) ? sanitize_text_field(wp_unslash($_POST['mg_order_token'])) : '';
 
-		if ( ! RestAuthHelper::verify_order_rest_token( $order_id, $token ) ) {
+		if (! RestAuthHelper::verify_order_rest_token($order_id, $token)) {
 			wp_send_json(
 				array(
-					'message' => __( 'Unauthorized.', MG_ENTERPRISE_TEXTDOMAIN ),
+					'message' => __('Unauthorized.', MG_ENTERPRISE_TEXTDOMAIN),
 					'code'    => 403,
 				),
 				403
@@ -420,11 +428,11 @@ class FrontendController {
 		}
 
 		try {
-			return RestAuthHelper::get_payable_order( $order_id );
-		} catch ( \Exception $e ) {
+			return RestAuthHelper::get_payable_order($order_id);
+		} catch (\Exception $e) {
 			wp_send_json(
 				array(
-					'message' => __( 'This order cannot be modified.', MG_ENTERPRISE_TEXTDOMAIN ),
+					'message' => __('This order cannot be modified.', MG_ENTERPRISE_TEXTDOMAIN),
 					'code'    => 403,
 				),
 				403
@@ -437,27 +445,27 @@ class FrontendController {
 	 * 
 	 * This ensures that the handling fee is added during the cart calculation process.
 	 */
-	public function add_handling_fee( $cart ) {
-		if ( is_admin() && ! defined( 'DOING_AJAX' ) ) {
-            return;
-        }
+	public function add_handling_fee($cart) {
+		if (is_admin() && ! defined('DOING_AJAX')) {
+			return;
+		}
 
-        $chosen_gateway = WC()->session->get( 'chosen_payment_method' );
+		$chosen_gateway = WC()->session->get('chosen_payment_method');
 
-        if ( ! empty( $chosen_gateway ) ) {
-			if ( isset( $this->gateway->hf_enabled ) && 'yes' === $this->gateway->hf_enabled && MG_ENTERPRISE_ID === $chosen_gateway ){
-				$handling_text = $this->gateway->get_option( HF_TEXT );
-				$handling_text = !empty( $handling_text ) ? $handling_text : HF_DEFAULT_TEXT;
-				$amount_type   = $this->gateway->get_option( HF_AMT_TYPE_TXT );
-				$handling_fee  = $this->gateway->get_option( HF_AMT_TXT ) ? $this->gateway->get_option( HF_AMT_TXT ) : 0;
+		if (! empty($chosen_gateway)) {
+			if (isset($this->gateway->hf_enabled) && 'yes' === $this->gateway->hf_enabled && MG_ENTERPRISE_ID === $chosen_gateway) {
+				$handling_text = $this->gateway->get_option(HF_TEXT);
+				$handling_text = !empty($handling_text) ? $handling_text : HF_DEFAULT_TEXT;
+				$amount_type   = $this->gateway->get_option(HF_AMT_TYPE_TXT);
+				$handling_fee  = $this->gateway->get_option(HF_AMT_TXT) ? $this->gateway->get_option(HF_AMT_TXT) : 0;
 
-				if ( HF_PERCENTAGE === $amount_type ) {
-					$surcharge = (float)( WC()->cart->cart_contents_total ) * ( (float) $handling_fee / 100 );
+				if (HF_PERCENTAGE === $amount_type) {
+					$surcharge = (float)(WC()->cart->cart_contents_total) * ((float) $handling_fee / 100);
 				} else {
 					$surcharge = $handling_fee;
 				}
 
-			    WC()->cart->add_fee( $handling_text, $surcharge, true, '' );
+				WC()->cart->add_fee($handling_text, $surcharge, true, '');
 			}
 		}
 	}
@@ -484,18 +492,18 @@ class FrontendController {
 	 *
 	 * @param WC_Order $order The WooCommerce order object containing order details.
 	 */
-	public function display_surcharge_message( $order ) {
+	public function display_surcharge_message($order) {
 		$message             = '';
-		$surcharge_enabled   = $this->gateway->get_option( SUR_ENABLED );
-		$surcharge_fee       = (float) $this->gateway->get_option( SUR_AMT_TXT );
-		if ( 'yes' === $surcharge_enabled && $surcharge_fee > 0 ) {
+		$surcharge_enabled   = $this->gateway->get_option(SUR_ENABLED);
+		$surcharge_fee       = (float) $this->gateway->get_option(SUR_AMT_TXT);
+		if ('yes' === $surcharge_enabled && $surcharge_fee > 0) {
 			$message = sprintf(
-				
+
 				__(
 					'<div class="mg-surcharge-notice-banner"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M12 3.2c-4.8 0-8.8 3.9-8.8 8.8 0 4.8 3.9 8.8 8.8 8.8 4.8 0 8.8-3.9 8.8-8.8 0-4.8-4-8.8-8.8-8.8zm0 16c-4 0-7.2-3.3-7.2-7.2C4.8 8 8 4.8 12 4.8s7.2 3.3 7.2 7.2c0 4-3.2 7.2-7.2 7.2zM11 17h2v-6h-2v6zm0-8h2V7h-2v2z"></path></svg><div class="mg-surcharge-notice-content">%1$s</div></div>',
 					MG_ENTERPRISE_TEXTDOMAIN
 				),
-				$this->get_surcharge_message( $order ),
+				$this->get_surcharge_message($order),
 			);
 		}
 
@@ -514,44 +522,44 @@ class FrontendController {
 	 * (e.g., credit card fees, payment gateway fees) applied during checkout.
 	 * Ensure proper handling of order data and formatting for customer clarity.
 	 */
-	public function get_surcharge_message( $order ) {
-		$order_builder       = new CheckoutBuilder( $order );
-		$amount_type         = $this->gateway->get_option( SUR_AMT_TYPE_TXT );
-		$surcharge_fee       = $this->gateway->get_option( SUR_AMT_TXT ) ? $this->gateway->get_option( SUR_AMT_TXT ) : 0;
-		$mg_card_type       = $this->gateway->get_option( SUR_CARD_TYPE );
-		$translated_card     = __( $mg_card_type, MG_ENTERPRISE_TEXTDOMAIN );
-		$surcharge_card_type = sprintf( __( '%s Card', MG_ENTERPRISE_TEXTDOMAIN ), $translated_card );
-	
-		if ( HF_FIXED === $amount_type ) {
+	public function get_surcharge_message($order) {
+		$order_builder       = new CheckoutBuilder($order);
+		$amount_type         = $this->gateway->get_option(SUR_AMT_TYPE_TXT);
+		$surcharge_fee       = $this->gateway->get_option(SUR_AMT_TXT) ? $this->gateway->get_option(SUR_AMT_TXT) : 0;
+		$mg_card_type       = $this->gateway->get_option(SUR_CARD_TYPE);
+		$translated_card     = __($mg_card_type, MG_ENTERPRISE_TEXTDOMAIN);
+		$surcharge_card_type = sprintf(__('%s Card', MG_ENTERPRISE_TEXTDOMAIN), $translated_card);
+
+		if (HF_FIXED === $amount_type) {
 			$default_msg = __(
 				'When using a {{MG_CARD_TYPE}} an additional surcharge of <b>{{MG_SUR_AMT}}</b> will be applied, bringing the total payable amount to <b>{{MG_TOTAL_AMT}}</b>.',
 				MG_ENTERPRISE_TEXTDOMAIN
 			);
 		} else {
-			$default_msg = SUR_DEFAULT_MSG; 
+			$default_msg = SUR_DEFAULT_MSG;
 		}
-	
+
 		// Use saved message if set, otherwise use dynamic default
-		$surcharge_message = $this->gateway->get_option( SUR_MSG ) ? $this->gateway->get_option( SUR_MSG ) : $default_msg;
-	
+		$surcharge_message = $this->gateway->get_option(SUR_MSG) ? $this->gateway->get_option(SUR_MSG) : $default_msg;
+
 		// Calculate surcharge
-		if ( HF_PERCENTAGE === $amount_type ) {
-			$surcharge = (float) ( $order->get_total() ) * ( (float) $surcharge_fee / ( 100 - (float) $surcharge_fee ) );
+		if (HF_PERCENTAGE === $amount_type) {
+			$surcharge = (float) ($order->get_total()) * ((float) $surcharge_fee / (100 - (float) $surcharge_fee));
 		} else {
 			$surcharge = $surcharge_fee;
 		}
-	
-		$surcharge           = $order_builder->formattedPrice( $surcharge );
+
+		$surcharge           = $order_builder->formattedPrice($surcharge);
 		$total_total         = (float) $order->get_total() + (float) $surcharge;
-		$surcharge_fee_label = ( HF_PERCENTAGE === $amount_type ) ? $surcharge_fee . '%' : '';
-	
+		$surcharge_fee_label = (HF_PERCENTAGE === $amount_type) ? $surcharge_fee . '%' : '';
+
 		return str_replace(
-			array( '{{MG_SUR_AMT}}', '{{MG_SUR_PCT}}', '{{MG_CARD_TYPE}}', '{{MG_TOTAL_AMT}}' ),
-			array( wc_price( $surcharge ), $surcharge_fee_label, $surcharge_card_type, wc_price( $total_total ) ),
+			array('{{MG_SUR_AMT}}', '{{MG_SUR_PCT}}', '{{MG_CARD_TYPE}}', '{{MG_TOTAL_AMT}}'),
+			array(wc_price($surcharge), $surcharge_fee_label, $surcharge_card_type, wc_price($total_total)),
 			$surcharge_message
 		);
 	}
-	
+
 	/**
 	 * Displays a surcharge confirmation box in the order details page.
 	 *
@@ -564,54 +572,54 @@ class FrontendController {
 	 * @return string The surcharge confirmation html, typically displayed to inform
 	 *                the customer about additional charges applied to their order.
 	 */
-	public function display_surcharge_confirmation_box( $order ) {
-		$surcharge_text      = $this->gateway->get_option( SUR_TEXT );
-		$surcharge_text      = !empty( $surcharge_text ) ? $surcharge_text : 'Surcharge';
-		$amount_type         = $this->gateway->get_option( SUR_AMT_TYPE_TXT );
-		$surcharge_fee       = $this->gateway->get_option( SUR_AMT_TXT ) ? $this->gateway->get_option( SUR_AMT_TXT ) : 0;
-		$surcharge_card_type = $this->gateway->get_option( SUR_CARD_TYPE ) . ' ' . __( 'Card', MG_ENTERPRISE_TEXTDOMAIN );
+	public function display_surcharge_confirmation_box($order) {
+		$surcharge_text      = $this->gateway->get_option(SUR_TEXT);
+		$surcharge_text      = !empty($surcharge_text) ? $surcharge_text : 'Surcharge';
+		$amount_type         = $this->gateway->get_option(SUR_AMT_TYPE_TXT);
+		$surcharge_fee       = $this->gateway->get_option(SUR_AMT_TXT) ? $this->gateway->get_option(SUR_AMT_TXT) : 0;
+		$surcharge_card_type = $this->gateway->get_option(SUR_CARD_TYPE) . ' ' . __('Card', MG_ENTERPRISE_TEXTDOMAIN);
 
-		if ( HF_FIXED === $amount_type ) {
-			 $default_msg = __( 'When using a {{MG_CARD_TYPE}} an additional surcharge of <b>{{MG_SUR_AMT}}</b> will be applied, bringing the total payable amount to <b>{{MG_TOTAL_AMT}}</b>.', MG_ENTERPRISE_TEXTDOMAIN );
+		if (HF_FIXED === $amount_type) {
+			$default_msg = __('When using a {{MG_CARD_TYPE}} an additional surcharge of <b>{{MG_SUR_AMT}}</b> will be applied, bringing the total payable amount to <b>{{MG_TOTAL_AMT}}</b>.', MG_ENTERPRISE_TEXTDOMAIN);
 		} else {
 			$default_msg = SUR_DEFAULT_MSG;
 		}
 
-		$surcharge_message = $this->gateway->get_option( SUR_MSG ) ? $this->gateway->get_option( SUR_MSG ) : $default_msg;
+		$surcharge_message = $this->gateway->get_option(SUR_MSG) ? $this->gateway->get_option(SUR_MSG) : $default_msg;
 
-		if ( HF_PERCENTAGE === $amount_type ) {
-			$surcharge = (float) ( $order->get_total() ) * ( (float) $surcharge_fee / (100 - (float) $surcharge_fee) );
+		if (HF_PERCENTAGE === $amount_type) {
+			$surcharge = (float) ($order->get_total()) * ((float) $surcharge_fee / (100 - (float) $surcharge_fee));
 		} else {
 			$surcharge = $surcharge_fee;
 		}
 
 		$total_total         = (float) $order->get_total() + (float) $surcharge;
-		$surcharge_fee_label = ( HF_PERCENTAGE === $amount_type ) ? $surcharge_fee . '%' : '';
+		$surcharge_fee_label = (HF_PERCENTAGE === $amount_type) ? $surcharge_fee . '%' : '';
 		$message             =  str_replace(
-			array( '{{MG_SUR_AMT}}', '{{MG_SUR_PCT}}', '{{MG_CARD_TYPE}}', '{{MG_TOTAL_AMT}}' ),
-			array( wc_price( $surcharge ), $surcharge_fee_label, $surcharge_card_type, wc_price( $total_total ) ),
+			array('{{MG_SUR_AMT}}', '{{MG_SUR_PCT}}', '{{MG_CARD_TYPE}}', '{{MG_TOTAL_AMT}}'),
+			array(wc_price($surcharge), $surcharge_fee_label, $surcharge_card_type, wc_price($total_total)),
 			$surcharge_message
 		);
 
 		$order_html = sprintf(
 			/* translators: 1. Order total text, 2. Order total amount, 3. Surcharge text, 4. Surcharge amount, 5. Grand total text, 6. Grant total. */
-			__( '<ul><li><label>%1$s:</label> %2$s</li><li><label>%3$s:</label> %4$s</li><li><label>%5$s:</label> %6$s</li></ul>', MG_ENTERPRISE_TEXTDOMAIN ),
-			apply_filters( 'mastercard_order_pay_order_total_text', __( 'Order Total', MG_ENTERPRISE_TEXTDOMAIN ) ),
-			wc_price( $order->get_total() ),
+			__('<ul><li><label>%1$s:</label> %2$s</li><li><label>%3$s:</label> %4$s</li><li><label>%5$s:</label> %6$s</li></ul>', MG_ENTERPRISE_TEXTDOMAIN),
+			apply_filters('mastercard_order_pay_order_total_text', __('Order Total', MG_ENTERPRISE_TEXTDOMAIN)),
+			wc_price($order->get_total()),
 			$surcharge_text,
-			wc_price( $surcharge ),
-			apply_filters( 'mastercard_order_pay_grand_total_text', __( 'Grand Total', MG_ENTERPRISE_TEXTDOMAIN ) ),
-			wc_price( $total_total )
-		);	
+			wc_price($surcharge),
+			apply_filters('mastercard_order_pay_grand_total_text', __('Grand Total', MG_ENTERPRISE_TEXTDOMAIN)),
+			wc_price($total_total)
+		);
 
 		return sprintf(
 			/* translators: 1. Surcharge message, 2. Order total text, 3. Order total amount, 4. Surcharge text, 5. Surcharge amount, 6. Grand total text, 7. Grant total, 8. Confirm button text, 9. Cancel button text. */
-			__( '<p>%1$s</p>%2$s<div class="mg_button_wrapper"><button type="button"class="wp-element-button wp-element-confirm-button">%3$s</button><a type="button"class="wp-element-button wp-element-cancel-button" href="%4$s">%5$s</a></div>', MG_ENTERPRISE_TEXTDOMAIN ),
+			__('<p>%1$s</p>%2$s<div class="mg_button_wrapper"><button type="button"class="wp-element-button wp-element-confirm-button">%3$s</button><a type="button"class="wp-element-button wp-element-cancel-button" href="%4$s">%5$s</a></div>', MG_ENTERPRISE_TEXTDOMAIN),
 			$message,
 			$order_html,
-			apply_filters( 'mastercard_order_pay_confirm_button_text', __( 'Confirm', MG_ENTERPRISE_TEXTDOMAIN ) ),
-			esc_url( wc_get_checkout_url() ),
-			apply_filters( 'mastercard_order_pay_cancel_button_text', __( 'Cancel', MG_ENTERPRISE_TEXTDOMAIN ) )
+			apply_filters('mastercard_order_pay_confirm_button_text', __('Confirm', MG_ENTERPRISE_TEXTDOMAIN)),
+			esc_url(wc_get_checkout_url()),
+			apply_filters('mastercard_order_pay_cancel_button_text', __('Cancel', MG_ENTERPRISE_TEXTDOMAIN))
 		);
 	}
 
@@ -628,8 +636,8 @@ class FrontendController {
 	 *
 	 * @return string Modified HTML output for the saved payment method option.
 	 */
-	public function mastercard_saved_payment_method_option_html( $html, $token, $gateway ) {
-		$card_type = $token->get_meta( 'funding_method' ); 
+	public function mastercard_saved_payment_method_option_html($html, $token, $gateway) {
+		$card_type = $token->get_meta('funding_method');
 		$html      = sprintf(
 			'<li class="woocommerce-SavedPaymentMethods-token">
 				<input
@@ -643,33 +651,33 @@ class FrontendController {
 					%4$s />
 				<label for="wc-%1$s-payment-token-%2$s">%3$s</label>
 			</li>',
-			esc_attr( MG_ENTERPRISE_ID ),
-			esc_attr( $token->get_id() ),
-			esc_html( $token->get_display_name() ),
-			checked( $token->is_default(), true, false ),
-			esc_attr( $card_type ) 
+			esc_attr(MG_ENTERPRISE_ID),
+			esc_attr($token->get_id()),
+			esc_html($token->get_display_name()),
+			checked($token->is_default(), true, false),
+			esc_attr($card_type)
 		);
-	
+
 		return $html;
 	}
 
-		/**
+	/**
 	 * Exception handler function.
 	 *
 	 * @param array $exception The exception data.
 	 *
 	 * @return void
 	 */
-	public function exception_handler( $exception ) {
+	public function exception_handler($exception) {
 		$message  = '<div class="wc-block-components-notice-banner is-error"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M12 3.2c-4.8 0-8.8 3.9-8.8 8.8 0 4.8 3.9 8.8 8.8 8.8 4.8 0 8.8-3.9 8.8-8.8 0-4.8-4-8.8-8.8-8.8zm0 16c-4 0-7.2-3.3-7.2-7.2C4.8 8 8 4.8 12 4.8s7.2 3.3 7.2 7.2c0 4-3.2 7.2-7.2 7.2zM11 17h2v-6h-2v6zm0-8h2V7h-2v2z"></path></svg><div class="wc-block-components-notice-banner__content"><ul><li>';
 		$message .= sprintf(
 			/* translators: %s: error message */
-			__( 'Error: "%s"', MG_ENTERPRISE_TEXTDOMAIN ),
+			__('Error: "%s"', MG_ENTERPRISE_TEXTDOMAIN),
 			$exception->getMessage()
 		);
 		$message .= '</li></ul></div></div>';
 
-		echo wp_kses_post( $message ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		echo wp_kses_post($message); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	}
 
 	/**
@@ -682,20 +690,20 @@ class FrontendController {
 	 * @return string CSS variable declarations scoped to :root
 	 */
 	public function get_hosted_checkout_styles() {
-	    $styles           = get_option( 'woocommerce_' . MG_ENTERPRISE_ID . '_style_defaults' ); 
-	    $surcharge_styles = json_decode( $styles['surcharge_fee_style'] ?? '{}' );
-	    $form_styles      = json_decode( $styles['payment_form_style'] ?? '{}' );
-	    $input_styles     = json_decode( $styles['payment_input_style'] ?? '{}' );
-	    $paybtn_styles    = json_decode( $styles['pay_button_style'] ?? '{}' );
-	    $consent_style    = json_decode( $styles['consent_style'] ?? '{}' );
-	    $confirm_style    = json_decode( $styles['confirm_button_style'] ?? '{}' );
-	    $cancel_style     = json_decode( $styles['cancel_button_style'] ?? '{}' );
+		$styles           = get_option('woocommerce_' . MG_ENTERPRISE_ID . '_style_defaults');
+		$surcharge_styles = json_decode($styles['surcharge_fee_style'] ?? '{}');
+		$form_styles      = json_decode($styles['payment_form_style'] ?? '{}');
+		$input_styles     = json_decode($styles['payment_input_style'] ?? '{}');
+		$paybtn_styles    = json_decode($styles['pay_button_style'] ?? '{}');
+		$consent_style    = json_decode($styles['consent_style'] ?? '{}');
+		$confirm_style    = json_decode($styles['confirm_button_style'] ?? '{}');
+		$cancel_style     = json_decode($styles['cancel_button_style'] ?? '{}');
 
-	    $get = function ( $object, $property ) {
-	        return isset( $object->{$property} ) ? $object->{$property} : '';
-	    };
+		$get = function ($object, $property) {
+			return isset($object->{$property}) ? $object->{$property} : '';
+		};
 
-	    return <<<CSS
+		return <<<CSS
 			:root {
 			    /* Surcharge Notice Styles */
 			    --surcharge-bg-color: {$get($surcharge_styles, 'bgColor')};
@@ -793,24 +801,24 @@ class FrontendController {
 	 * @return void
 	 */
 	public function load_google_font_families() {
-		$options = get_option( 'woocommerce_' . MG_ENTERPRISE_ID . '_style_defaults' ); 
+		$options = get_option('woocommerce_' . MG_ENTERPRISE_ID . '_style_defaults');
 
-		if( $options ) {
-			$font_families = $this->utility->extract_unique_font_families( $options );
+		if ($options) {
+			$font_families = $this->utility->extract_unique_font_families($options);
 
-			if ( empty( $font_families ) ) {
-		        return '';
-		    }
+			if (empty($font_families)) {
+				return '';
+			}
 
-    		$base_url    = 'https://fonts.googleapis.com/css2?';
-		    $font_params = [];
+			$base_url    = 'https://fonts.googleapis.com/css2?';
+			$font_params = [];
 
-		    foreach ( $font_families as $font ) {
-		        $encoded_font  = str_replace( ' ', '+', $font );
-		        $font_params[] = "family={$encoded_font}:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400";
-		    }
+			foreach ($font_families as $font) {
+				$encoded_font  = str_replace(' ', '+', $font);
+				$font_params[] = "family={$encoded_font}:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400";
+			}
 
-		    $google_font = $base_url . implode( '&', $font_params ) . '&display=swap';
+			$google_font = $base_url . implode('&', $font_params) . '&display=swap';
 
 			wp_enqueue_style(
 				'woocommerce-mastercard-google-font',
@@ -827,14 +835,14 @@ class FrontendController {
 	 * @since 2.6.0
 	 */
 
-	 public function mastercard_saved_new_payment_method_option_html( $html, $gateway ) {
+	public function mastercard_saved_new_payment_method_option_html($html, $gateway) {
 		$html = sprintf(
 			'<p class="form-row woocommerce-SavedPaymentMethods-saveNew custom-class">
 				<input id="wc-%1$s-new-payment-method" name="wc-%1$s-new-payment-method" type="checkbox" value="true" style="width:auto;" />
 				<label for="wc-%1$s-new-payment-method" style="display:inline;">%2$s</label>
 			</p>',
-			esc_attr( $gateway->id ),
-			esc_html__( 'Save to account',MG_ENTERPRISE_TEXTDOMAIN )
+			esc_attr($gateway->id),
+			esc_html__('Save to account', MG_ENTERPRISE_TEXTDOMAIN)
 		);
 		return $html;
 	}
@@ -845,22 +853,22 @@ class FrontendController {
 	 *
 	 * 
 	 */
-	public function mg_get_new_payment_method_option_html( $html, $gateway ) {
+	public function mg_get_new_payment_method_option_html($html, $gateway) {
 		$label = apply_filters(
 			'woocommerce_payment_gateway_get_new_payment_method_option_html_label',
-			$gateway->new_method_label ? $gateway->new_method_label : __( 'Use a new payment method', MG_ENTERPRISE_TEXTDOMAIN ),
+			$gateway->new_method_label ? $gateway->new_method_label : __('Use a new payment method', MG_ENTERPRISE_TEXTDOMAIN),
 			$gateway
 		);
-	
+
 		$html = sprintf(
 			'<li class="woocommerce-SavedPaymentMethods-new custom-radio-option">
 				<input id="wc-%1$s-payment-token-new" type="radio" name="wc-%1$s-payment-token" value="new" style="width:auto;" class="woocommerce-SavedPaymentMethods-tokenInput" />
 				<label for="wc-%1$s-payment-token-new">%2$s</label>
 			</li>',
-			esc_attr( $gateway->id ),
-			esc_html( $label )
+			esc_attr($gateway->id),
+			esc_html($label)
 		);
-	
+
 		return $html;
 	}
 
@@ -870,9 +878,9 @@ class FrontendController {
 	 * @param string $class The class name WC wants to use.
 	 * @param string $type  The token type (e.g., 'cc').
 	 * @return string       The class to use for the given token type.
-	*/
-	public static function override_mg_token_class( $class, $type ) {
-		if ( 'cc' === strtolower( $type ) ) {
+	 */
+	public static function override_mg_token_class($class, $type) {
+		if ('cc' === strtolower($type)) {
 			return \Fingent\Mastercard\Core\PaymentTokenCC::class;
 		}
 		return $class;
@@ -884,18 +892,175 @@ class FrontendController {
 	 * @since  2.6.0
 	 * @param  string $type Provider Slug/Type.
 	 * @return string
-	*/
-	public function mg_get_credit_card_type_label( $labels ) {
-		$labels['mastercard'] = __( 'MasterCard', MG_ENTERPRISE_TEXTDOMAIN );
-		$labels['visa']       = __( 'Visa', MG_ENTERPRISE_TEXTDOMAIN );
-		$labels['discover']   = __( 'Discover', MG_ENTERPRISE_TEXTDOMAIN );
-		$labels['american express'] = __( 'American Express', MG_ENTERPRISE_TEXTDOMAIN );
-		$labels['cartes bancaires'] = __( 'Cartes Bancaires', MG_ENTERPRISE_TEXTDOMAIN );
-		$labels['diners']     = __( 'Diners', MG_ENTERPRISE_TEXTDOMAIN );
-		$labels['jcb']        = __( 'JCB', MG_ENTERPRISE_TEXTDOMAIN );
-	
+	 */
+	public function mg_get_credit_card_type_label($labels) {
+		$labels['mastercard'] = __('MasterCard', MG_ENTERPRISE_TEXTDOMAIN);
+		$labels['visa']       = __('Visa', MG_ENTERPRISE_TEXTDOMAIN);
+		$labels['discover']   = __('Discover', MG_ENTERPRISE_TEXTDOMAIN);
+		$labels['american express'] = __('American Express', MG_ENTERPRISE_TEXTDOMAIN);
+		$labels['cartes bancaires'] = __('Cartes Bancaires', MG_ENTERPRISE_TEXTDOMAIN);
+		$labels['diners']     = __('Diners', MG_ENTERPRISE_TEXTDOMAIN);
+		$labels['jcb']        = __('JCB', MG_ENTERPRISE_TEXTDOMAIN);
+
 		return $labels;
 	}
 
-	
-}
+	/**
+	 * Replace the gateway icon with card logos.
+	 *
+	 * @param string $icon The current gateway icon HTML.
+	 * @param string $id   The gateway ID.
+	 * @return string Modified icon HTML.
+	 */
+	public function gateway_icon($icon, $id) {
+		if ($id == 'mastercard_gateway') {
+			$icon = sprintf(
+				'<img src="%s" style="height: 24px; width: auto; display: inline-block;" />',
+				trailingslashit(UtilityController::plugin_url()) . 'assets/images/visa-mastercard-logos.png'
+			) . sprintf(
+				'<img src="%s" style="height: 24px; width: auto; display: inline-block;" />',
+				trailingslashit(UtilityController::plugin_url()) . 'assets/images/Suncorp-Logo.png'
+			);
+		}
+		return $icon;
+	}
+
+	/**
+	 * Open the "Confirm & Pay" wrapper before the payment form on the order-pay page.
+	 */
+	public function before_woocommerce_pay() {
+		global $wp;
+		$order_id = absint($wp->query_vars['order-pay']);
+		$order    = wc_get_order($order_id);
+
+		if ($order && $order->needs_payment() && $order->get_payment_method() == 'mastercard_gateway') {
+		?>
+			<div class="checkout-step order-receipt-step">
+				<h2 class="step-header">Confirm &amp; Pay</h2>
+				<div class="step-content">
+					<div class="order-receipt-logo">
+						<img src="<?php echo esc_url(trailingslashit(UtilityController::plugin_url()) . 'assets/images/visa-mastercard-logos.png'); ?>" />
+						<img src="<?php echo esc_url(trailingslashit(UtilityController::plugin_url()) . 'assets/images/Suncorp-Logo.png'); ?>" />
+					</div>
+				<?php
+			}
+		}
+
+		/**
+		 * Close the wrapper divs opened by before_woocommerce_pay.
+		 */
+		public function receipt_mastercard_gateway_footer() {
+				?>
+				</div>
+			</div>
+		<?php
+		}
+
+		/**
+		 * Output custom CSS styles for the payment page.
+		 */
+		public function payment_page_styles() {
+		?>
+			<style>
+				#mg_pay {
+					background: #70C045;
+					width: 280px;
+					display: block;
+					text-align: center;
+					font-size: 18px;
+					height: auto;
+					padding: 14px;
+					border-radius: 32px;
+					text-align: center;
+					color: #fff;
+					font-size: 20px;
+					margin: 28px 0 14px;
+					border: none;
+					outline: none;
+				}
+
+				#mg_pay:hover {
+					background: #159965;
+				}
+
+				.payment_box.payment_method_mastercard_gateway {
+					background: #fff;
+					padding: 15px 28px;
+					border: 2px solid #71BF45;
+					border-bottom-right-radius: 4px;
+					border-bottom-left-radius: 4px;
+					position: relative;
+					margin-top: -10px;
+					border-top: none;
+				}
+
+				.checkout-step.order-receipt-step {
+					width: 48%;
+				}
+
+				h2.step-header {
+					font-size: 18px;
+					color: #ffffff;
+				}
+
+				.order-receipt-logo {
+					display: flex;
+				}
+
+				.order-receipt-logo img {
+					height: 40px;
+					padding-bottom: 10px;
+					border-bottom: 1px solid #cfcfcf;
+				}
+
+				.checkout-step.order-receipt-step ul li {
+					margin: 0 0 10px 0;
+					padding-left: 30px;
+				}
+
+				.woocommerce-checkout .checkout-step .wc-credit-card-form {
+					padding: 12px 18px !important;
+				}
+
+				.woocommerce-checkout .checkout-step .wc-credit-card-form .form-row {
+					display: block;
+					margin-bottom: 12px;
+				}
+
+				.woocommerce-checkout .checkout-step .wc-credit-card-form .form-row.form-row-first,
+				.woocommerce-checkout .checkout-step .wc-credit-card-form .form-row.form-row-last {
+					display: inline-block;
+					width: 48.5%;
+				}
+
+				.woocommerce-checkout .checkout-step .wc-credit-card-form .form-row.form-row-last {
+					margin-left: 3%;
+				}
+
+				.woocommerce-checkout .checkout-step .wc-credit-card-form .form-row .input-text {
+					width: 100%;
+					height: 35px;
+					border-radius: 4px;
+					font-size: 14px;
+					padding: 0 10px;
+					line-height: 35px;
+					border: 1px solid #D1CFCF !important;
+				}
+
+				.woocommerce-checkout .checkout-step .wc-credit-card-form .form-row label {
+					color: #332727;
+					font-size: 14px;
+					margin-bottom: 5px;
+					display: block;
+					line-height: 22px;
+				}
+
+				@media (max-width: 768px) {
+					.woocommerce-order-pay .checkout-step {
+						width: 100%;
+					}
+				}
+			</style>
+	<?php
+		}
+	}

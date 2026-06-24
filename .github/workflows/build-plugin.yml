@@ -1,0 +1,28 @@
+name: Build Plugin
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify tag is on greenpack branch
+        run: |
+          git branch -r --contains ${{ github.sha }}
+          git branch -r --contains ${{ github.sha }} | grep "origin/greenpack"
+
+      - name: Build plugin
+        run: make build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin
+          path: dist/*.zip
