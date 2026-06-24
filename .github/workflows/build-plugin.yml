@@ -13,11 +13,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  
 
       - name: Verify tag is on greenpack branch
         run: |
-          git branch -r --contains ${{ github.sha }}
-          git branch -r --contains ${{ github.sha }} | grep "origin/greenpack"
+          git fetch origin greenpack --no-tags
+          if ! git branch -r --contains "${{ github.sha }}" | grep -q "origin/greenpack"; then
+            echo "Tag is not on origin/greenpack. Aborting."
+            exit 1
+          fi
 
       - name: Build plugin
         run: make build
